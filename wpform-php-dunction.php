@@ -2,21 +2,21 @@ function wpforms_show_entry_by_id_shortcode() {
     global $wpdb;
     ob_start();
 
-    if ( isset($_POST['entry_id']) || isset($_POST['patient_id']) ) {
-        $entry_id = isset($_POST['entry_id']) ? intval($_POST['entry_id']) : null;
-        $patient_id = isset($_POST['patient_id']) ? sanitize_text_field($_POST['patient_id']) : null;
+    $current_user_id = get_current_user_id();
+    $selected_entry_id = isset($_POST['entry_id']) ? intval($_POST['entry_id']) : null;
+    $patient_id = isset($_POST['patient_id']) ? sanitize_text_field($_POST['patient_id']) : null;
 
-        $entries = [];
+    $entries = [];
 
-        // Search by entry_id
-        if ( $entry_id ) {
-            $entry = wpforms()->entry->get( $entry_id, [ 'cap' => false, 'fields' => true ] );
+    // If a specific entry is selected (by entry ID or patient ID), show that
+    if ( $selected_entry_id || $patient_id ) {
+        if ( $selected_entry_id ) {
+            $entry = wpforms()->entry->get( $selected_entry_id, [ 'cap' => false, 'fields' => true ] );
             if ( $entry ) {
                 $entries[] = $entry;
             }
         }
 
-        // Search by patient_id in شناسه بیمار field
         if ( $patient_id ) {
             $results = $wpdb->get_results(
                 $wpdb->prepare(
@@ -34,109 +34,149 @@ function wpforms_show_entry_by_id_shortcode() {
                 }
             }
         }
+    }
 
-        if ( !empty($entries) ) {
-            foreach ( $entries as $entry ) {
-                $form = wpforms()->form->get( $entry->form_id );
-                $form_name = isset($form->post_title) ? $form->post_title : 'فرم بدون نام';
-                $form_data = wpforms_decode( $form->post_content );
-                $entry_fields = json_decode( $entry->fields, true );
+    // 🟩 Show table for selected entry if found
+    if ( !empty($entries) ) {
+		
+											
+			// 🔙 Back button to return to search/list
+echo "<form method='post'>
+        <button type='submit' style='border: none; border-radius: 25px;fcursor: pointer;'>
+            بازگشت
+        </button>
+      </form>";
+		
+		
+        foreach ( $entries as $entry ) {
+            $form = wpforms()->form->get( $entry->form_id );
+            $form_name = $form->post_title ?? 'فرم بدون نام';
+            $form_data = wpforms_decode( $form->post_content );
+            $entry_fields = json_decode( $entry->fields, true );
 
-                echo "<h3>🆔 شناسه ورودی: {$entry->entry_id}</h3>";
-                echo "<h3>📝 اسم فرم: {$form_name}</h3>";
+            echo "<h3>🆔 شناسه ورودی: {$entry->entry_id}</h3>";
+            echo "<h3>📝 اسم فرم: {$form_name}</h3>";
 
-                // Show session number
-                $session_number = '';
-                foreach ( $form_data['fields'] as $fid => $field ) {
-                    if ( $field['type'] === 'select' && $field['label'] === 'شماره جلسه' ) {
-                        $session_number = isset($entry_fields[$fid]['value']) ? $entry_fields[$fid]['value'] : '';
-                        break;
-                    }
+            // Show session number
+            $session_number = '';
+            foreach ( $form_data['fields'] as $fid => $field ) {
+                if ( $field['type'] === 'select' && $field['label'] === 'شماره جلسه' ) {
+                    $session_number = $entry_fields[$fid]['value'] ?? '';
+                    break;
                 }
+            }
 
-                if ( !empty($session_number) ) {
-                    echo "<h3>📅 {$session_number}</h3>";
-                }
+            if ( !empty($session_number) ) {
+                echo "<h3>📅 {$session_number}</h3>";
+            }
 
-                echo "<table style='border-collapse: collapse; width: 100%; direction: rtl;'>";
-                echo "<thead>
-                        <tr>
-                            <th style='border: 1px solid #ccc; padding: 8px;'>عنوان</th>
-                            <th style='border: 1px solid #ccc; padding: 8px;'>مقدار</th>
-                        </tr>
-                      </thead>";
-                echo "<tbody>";
+			
+			
+            echo "<table style='border-collapse: collapse; width: 100%; direction: rtl;'>";
+            echo "<thead>
+                    <tr>
+                        <th style='border: 1px solid #ccc; padding: 8px;'>عنوان</th>
+                        <th style='border: 1px solid #ccc; padding: 8px;'>مقدار</th>
+                    </tr>
+                  </thead><tbody>";
 
-                // Loop through fields with improved divider logic
-                $fields = $form_data['fields'];
-                $field_ids = array_keys($fields);
-                $total_fields = count($field_ids);
+            $fields = $form_data['fields'];
+            $field_ids = array_keys($fields);
+            $total_fields = count($field_ids);
 
-                for ( $i = 0; $i < $total_fields; $i++ ) {
-                    $fid = $field_ids[$i];
-                    $field = $fields[$fid];
-                    $type = $field['type'];
-                    $label = $field['label'] ?? '';
+            for ( $i = 0; $i < $total_fields; $i++ ) {
+                $fid = $field_ids[$i];
+                $field = $fields[$fid];
+                $type = $field['type'];
+                $label = $field['label'] ?? '';
 
-                    // Handle divider
-                    if ( $type === 'divider' && !empty($label) ) {
-                        // Look ahead for any field with value
-                        $has_content_after = false;
-                        for ( $j = $i + 1; $j < $total_fields; $j++ ) {
-                            $next_fid = $field_ids[$j];
-                            $next_field = $fields[$next_fid];
+                // Handle divider
+                if ( $type === 'divider' && !empty($label) ) {
+                    $has_content_after = false;
+                    for ( $j = $i + 1; $j < $total_fields; $j++ ) {
+                        $next_fid = $field_ids[$j];
+                        $next_field = $fields[$next_fid];
+                        if ( $next_field['type'] === 'divider' ) break;
 
-                            if ( $next_field['type'] === 'divider' ) {
-                                break;
-                            }
-
-                            if (
-                                isset($entry_fields[$next_fid]) &&
-                                !empty($entry_fields[$next_fid]['value'])
-                            ) {
-                                $has_content_after = true;
-                                break;
-                            }
+                        if (
+                            isset($entry_fields[$next_fid]) &&
+                            !empty($entry_fields[$next_fid]['value'])
+                        ) {
+                            $has_content_after = true;
+                            break;
                         }
-
-                        if ( $has_content_after ) {
-                            echo "<tr>
-                                    <td colspan='2' style='background: #f0f0f0; font-weight: bold; padding: 10px; text-align: right; border: 1px solid #ccc;'>
-                                        " . esc_html($label) . "
-                                    </td>
-                                  </tr>";
-                        }
-
-                        continue;
                     }
-
-                    // Show regular field if it has value
-                    if ( isset($entry_fields[$fid]) && !empty($entry_fields[$fid]['value']) ) {
+                    if ( $has_content_after ) {
                         echo "<tr>
-                                <td style='border: 1px solid #ccc; padding: 8px;'>" . esc_html($label) . "</td>
-                                <td style='border: 1px solid #ccc; padding: 8px;'>" . esc_html($entry_fields[$fid]['value']) . "</td>
+                                <td colspan='2' style='background: #f0f0f0; font-weight: bold; padding: 10px; text-align: right; border: 1px solid #ccc;'>
+                                    " . esc_html($label) . "
+                                </td>
                               </tr>";
                     }
+                    continue;
                 }
 
-                echo "</tbody></table>";
+                // Show field if it has value
+                if ( isset($entry_fields[$fid]) && !empty($entry_fields[$fid]['value']) ) {
+                    echo "<tr>
+                            <td style='border: 1px solid #ccc; padding: 8px;'>" . esc_html($label) . "</td>
+                            <td style='border: 1px solid #ccc; padding: 8px;'>" . esc_html($entry_fields[$fid]['value']) . "</td>
+                          </tr>";
+                }
             }
-        } else {
-            echo "<p>نتیجه‌ای با این شناسه وجود ندارد!</p>";
+
+            echo "</tbody></table><hr style='margin: 40px 0;'>";
         }
     }
+
+    // 🟦 Show list of current user’s entries
+    if ( is_user_logged_in() && !$selected_entry_id && !$patient_id ) {
+        $user_entries = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT entry_id, form_id, date FROM {$wpdb->prefix}wpforms_entries WHERE user_id = %d ORDER BY date DESC",
+                $current_user_id
+            )
+        );
+
+        if ( !empty($user_entries) ) {
+            echo "<h3>📋 لیست فرم‌های ثبت‌شده توسط شما:</h3><ul style='list-style: none; padding: 0;'>";
+
+            foreach ( $user_entries as $entry ) {
+                $form = wpforms()->form->get( $entry->form_id );
+                $form_name = $form->post_title ?? 'فرم بدون نام';
+                $entry_date = date_i18n( 'Y/m/d H:i', strtotime($entry->date) );
+
+                echo "<li style='margin-bottom: 10px;'>
+                        <form method='post' style='display:inline-block;'>
+                            <input type='hidden' name='entry_id' value='{$entry->entry_id}' />
+ 
+
+		                            <button type='submit' style='background: #fff;color: currentcolor;margin: 0;'>
+                               {$entry->entry_id} - {$form_name} <small>({$entry_date})</small> 
+                            </button>
+							
+                        </form>
+                      </li>";
+            }
+
+            echo "</ul><hr>";
+        } else {
+            echo "<p>هنوز هیچ فرم ثبت نکرده‌اید.</p>";
+        }
+    }
+
     ?>
 
     <form method="post" style="margin-top: 2em; padding: 30px; border-radius: 20px; background: #f9f9f9; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
-        <h4 style="color: #444;">لطفا شناسه ورودي و يا شناسه بيمار را وارد نماييد</h4>
+        <h4 style="color: #444;">جستجوی دستی با شناسه</h4>
 
         <div style="display: flex; gap: 20px; flex-wrap: wrap;">
             <div style="flex: 1;">
-                <label for="entry_id">شناسه ورودی را وارد کنید:</label>
+                <label for="entry_id">شناسه ورودی:</label>
                 <input type="text" name="entry_id" id="entry_id" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 25px;" />
             </div>
             <div style="flex: 1;">
-                <label for="patient_id">شناسه بیمار را وارد کنید:</label>
+                <label for="patient_id">شناسه بیمار:</label>
                 <input type="text" name="patient_id" id="patient_id" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 25px;" />
             </div>
         </div>
@@ -147,6 +187,7 @@ function wpforms_show_entry_by_id_shortcode() {
     </form>
 
     <?php
+
     return ob_get_clean();
 }
 
